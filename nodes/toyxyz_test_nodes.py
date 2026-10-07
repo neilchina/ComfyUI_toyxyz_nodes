@@ -6,19 +6,16 @@ import torchvision.transforms.functional as tf
 import torchvision.transforms.v2 as T
 import os
 os.environ["OPENCV_IO_ENABLE_OPENEXR"]="1"
+import sys
 import time
 import cv2
 from pathlib import Path
 from nodes import MAX_RESOLUTION, SaveImage, common_ksampler
 
 import mss #Screen Capture
-import win32gui
-import win32ui
-import win32con
-import win32api
-from win32gui import FindWindow, GetWindowRect #Get window size and location
 import ctypes #for Find window
-from ctypes import windll, wintypes
+if sys.platform == "win32":
+    import ctypes.wintypes
 
 import trimesh
 
@@ -193,18 +190,6 @@ def pil_image_to_comfy(image: Image.Image):
 
     return rgb_image, mask.unsqueeze(0)
 
-def find_window(name):
-    
-    try:
-        hwnd = ctypes.windll.user32.FindWindowW(0, name)
-        
-        if hwnd:
-            return(True)
-        else:
-            return(False)
-    except:
-        return(False)
-
 #Get title bar thickness
 def get_title_bar_thickness(hwnd):
     rect = ctypes.wintypes.RECT()
@@ -214,134 +199,6 @@ def get_title_bar_thickness(hwnd):
     title_bar_thickness = (rect.bottom - rect.top) - (client_rect.bottom - client_rect.top)
     
     return title_bar_thickness
-
-
-def capture_win_target(handle, window_capture_area_name: str, capture_full_window, window_margin):
-    # Adapted from https://stackoverflow.com/questions/19695214/screenshot-of-inactive-window-printwindow-win32gui
-    
-    #Find target windwow and capture window
-    
-    window_title = win32gui.GetWindowText(handle)
-
-    hwnd = win32gui.FindWindow(None, window_title)
-    
-    
-    if capture_full_window == False:
-
-        hwnd_a = win32gui.FindWindow(None, window_capture_area_name)
-    
-        bar_thickness = get_title_bar_thickness(hwnd_a)
-    
-    margin = window_margin
-    
-    #Get target window position and area
-    try:
-        left, top, right, bottom = win32gui.GetClientRect(hwnd)
-    except:
-        return np.zeros((512, 512, 3), dtype=np.uint8)
-        print("Wrong window handle!")
-
-    x, y, w, h = win32gui.GetWindowRect(hwnd)
-    
-    left_w, top_w, right_w, bottom_w = win32gui.GetWindowRect(hwnd)
-    
-    
-    if capture_full_window == False:
-    
-        left_a, top_a, right_a, bottom_a = win32gui.GetWindowRect(hwnd_a)
-        
-        top_a = top_a + bar_thickness - margin
-        
-        left_a = left_a + margin
-        
-        right_a = right_a - margin
-        
-        bottom_a = bottom_a - margin
-    
-    #Set crot area
-    if capture_full_window == False:
-        if left_a>left_w:
-            x_crop = left_a-left_w
-        else:
-            x_crop = 0
-        
-        if top_a>top_w:
-            y_crop = top_a-top_w
-        else:
-            y_crop = 0
-        
-        if right_a<right_w:
-            x2_crop = right_a-right_w
-        else:
-            x2_crop = right_w
-        
-        if bottom_a<bottom_w:
-            y2_crop = bottom_a-bottom_w
-        else:
-            y2_crop = bottom_w
-
-    w = right - left
-    h = bottom - top
-    
-    try:
-        #Create bitmap
-        hwnd_dc = win32gui.GetWindowDC(hwnd)
-        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-        save_dc = mfc_dc.CreateCompatibleDC()
-        bitmap = win32ui.CreateBitmap()
-        bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
-        save_dc.SelectObject(bitmap)
-
-        # If Special K is running, this number is 3. If not, 1
-        result = windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 3)
-
-        bmpinfo = bitmap.GetInfo()
-        bmpstr = bitmap.GetBitmapBits(True)
-        
-    except:
-        pass
-
-    try:
-        img = np.frombuffer(bmpstr, dtype=np.uint8).reshape((bmpinfo["bmHeight"], bmpinfo["bmWidth"], 4))
-    except:
-        return np.zeros((512, 512, 3), dtype=np.uint8)
-    img = np.ascontiguousarray(img)[..., :-1]  # make image C_CONTIGUOUS and drop alpha channel
-    
-    img = np.array(img, dtype=np.uint8)
-
-    #Delete hwnd
-    try:
-        win32gui.DeleteObject(bitmap.GetHandle())
-        save_dc.DeleteDC()
-        mfc_dc.DeleteDC()
-        win32gui.ReleaseDC(hwnd, hwnd_dc)
-    except:
-        pass
-    
-    #Image crop
-    if capture_full_window == False:
-        crop_img = img[y_crop:y2_crop, x_crop:x2_crop]
-        
-        crop_h,crop_w,crop_c = crop_img.shape
-
-    if not result:  # result should be 1
-        win32gui.DeleteObject(bitmap.GetHandle())
-        save_dc.DeleteDC()
-        mfc_dc.DeleteDC()
-        win32gui.ReleaseDC(hwnd, hwnd_dc)
-        print(f"Unable to acquire capture! Result: {result}")
-        return np.zeros((512, 512, 3), dtype=np.uint8)
-    
-    if capture_full_window == False:
-        if((crop_h>0) and (crop_w>0)):
-            return crop_img
-        else:
-            return np.zeros((512, 512, 3), dtype=np.uint8)
-       
-    if capture_full_window == True:
-        return img
-
-
 
 
 class CaptureWebcam:
@@ -720,7 +577,9 @@ class Direct_screenCap:
                 
             elif (capture_mode == "window" or capture_mode == "window_crop"):
             
-                if target_window:
+                monitor = monitor_default
+                
+                if target_window and sys.platform == "win32":
                     hwnd_a = ctypes.windll.user32.FindWindowW(0, target_window)
                     
                     margin = 11
