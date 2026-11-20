@@ -8,6 +8,8 @@ https://github.com/toyxyz/ComfyUI_toyxyz_test_nodes/assets/8006000/8536e96a-514a
 
 Update 
 
+2026/10/13 Add 3D Pose Editor and ComfyCouple Region painter nodes
+
 2026/09/29 Add booru tag prompter node
 
 2026/09/16 Add image prompter node
@@ -274,6 +276,8 @@ The generated prompt appears at the bottom of the node.
 - **Undo**: restore the prompt before the last edit.
 - **Regenerate from inputs**: clear the edited output, then run the workflow to generate from the inputs again.
 
+**Custom mode:** select `prompt_type: custom` to send the text input directly as your instruction, with no built-in system prompt, automatic translation, enhancement, camera/style preset or weight restoration. Connected images are sent with that instruction in one multimodal request, without a separate analysis/writing pass. Output language and format follow your instructions; Markdown/code fences are preserved. Edit Prompt sends the current output and your edit request without a system prompt. An existing edited override still takes priority; clear it with **Regenerate from inputs**. A connected JSON builder still selects its own structured mode instead of `prompt_type`.
+
 Changing `prompt_type` clears the edited output, displayed prompt and Undo state; run the workflow to generate in the new mode. Other input changes leave the edited override active until you use Regenerate from inputs. Loading a saved workflow preserves its saved edit. These buttons do not start image generation. Unchanged inputs may use cached results; change the seed for a new variation.
 
 **Setup:** uses the shared H3 Qwen/llama.cpp runtime. Existing weights are reused; missing model weights download on first use (about 16.8 GB for the language model, plus vision weights when needed).
@@ -292,6 +296,10 @@ Enter tags in `tags` and connect the `tags` output to a text encoder. Autocomple
 | **Wiki** | On first use, asks to download the offline database from Hugging Face (about 272 MiB). Later uses work offline. Browse categories, search, follow wiki links, and use **Insert** on a tag entry to add it at the cursor. Drag the title bar to move the window or its bottom-right corner to resize it. |
 | `camera` | Optionally connect `booru tag camera`; its selected camera guidance is appended after your text. |
 
+Folder locations are configured under **Settings → toyxyz_test_nodes → Booru tag prompter**: **Wildcards folder path** controls the W panel; **Favorites folder path** controls the F panel. Leave a path blank to use the custom node's default folder.
+
+Enable **Autocomplete in other nodes** in the same settings group to use Booru tag/wildcard suggestions in other nodes' editable text fields, including CLIP prompts and Region painter prompts. It is off by default; the Booru tag prompter's own autocomplete remains enabled. Suggestions appear at the caret; select with ↑/↓ and Enter/Tab, or click, and dismiss with Esc. Disable other text-autocomplete extensions if their popups overlap.
+
 The node does not use Qwen or invent additional tags. Wildcard file contents and manually entered prompt text are preserved as written.
 
 ### Booru tag camera
@@ -309,6 +317,50 @@ Connect its `camera` output to `booru tag prompter.camera`.
 | **Focus / Blur** | Combines toggleable effects such as depth of field, bokeh, lens flare, and motion blur. **Random** samples a combination; **Strength** applies to the whole group. |
 
 Each main list also has **Random**, which selects a non-None option on each run. Weights range from 0–10 (default 2.0): drag the number to adjust it or click to type; the reset icon restores 2.0. The preview is a guide, not a guarantee of the generated angle. Camera options do not choose a pose, outfit, background, or number of people.
+
+### json prompter builder
+
+Builds layout-guided JSON captions for **Ideogram 4** and **Ming Image**. Connect its `builder` output to the `builder` input of **image prompter**. This connection selects the JSON format instead of `prompt_type`; Qwen translates or enhances descriptions without rebuilding the JSON.
+
+- **Target model / width / height**: choose the native caption format and canvas dimensions. The `width` and `height` outputs can drive the image generator's resolution.
+- **Scene / background / style / lighting**: describe the overall image. Ideogram supports photographic or art-style fields; Ming uses canvas lighting and image style.
+- **Region canvas**: stays attached to the left side of the node as the graph moves or zooms. Drag to draw, click to select, drag to move, and drag the lower-right corner to resize. Ctrl+drag draws over an existing region.
+- **Region editor**: choose `obj` or `text`, enter its description, exact visible text, relations and optional hex colors. Coordinates use normalized top-left `x/y` and `w/h`. Lock, duplicate, delete or reorder regions with **Back / Front** (background to foreground).
+- **Reference**: loads a local visual layout guide only; it is not sent to Qwen. **Import / Export layout** saves editable settings; **Copy JSON** copies the last compiled caption.
+- **Outputs**: `json` is the caption without Qwen processing; image prompter's `prompt` is the processed native JSON. Use **Edit Prompt** for description changes; change the builder for layout or visible-text changes.
+
+Coordinates, layer count/order, palettes and visible text stay locked, including during prompt editing. Invalid Qwen patches get one retry; no malformed caption is emitted. Ming uses ordered layers and center-coordinate strings; Ideogram uses `[ymin, xmin, ymax, xmax]` boxes on a 0–1000 scale. Regions guide generation, not masks or guaranteed pixel placement. Aim for five or fewer Ideogram elements. Connected image references and compatible camera/style presets can inform descriptions but cannot replace the locked layout or explicit user instructions.
+
+### 3D Pose Editor
+
+<img width="1476" height="1332" alt="3D Pose Editor example with body controls and a white preview grid" src="docs/images/3d-pose-editor.png" />
+
+Pose and customize multiple MHR human bodies in a 3D scene. The background is black; bodies, poses, shapes, colors, camera and lighting are saved with the workflow.
+
+**Toolbar**
+
+- **Reset pose / Reset view**: restore the selected body's pose / the front camera view. Reset pose keeps the body's shape, color and overall root scale.
+- **Undo / Redo**: arrow icons undo or redo edits, including adding or deleting bodies.
+- **Get pose**: choose an image to apply one person's shape and pose to the selected body. Requires SAM 3D Body; use a single-person image or crop. Connect a SAM body loader to `sam3d_body_model`, or use the default model at `ComfyUI/models/detection/sam_3d_body_dinov3_bf16.safetensors`. If missing, the default model downloads automatically from Comfy-Org (about 2.83 GB), with progress shown before inference. Existing files are reused; custom model filenames are not downloaded automatically. Download failures leave the body unchanged; retry after fixing network/disk access.
+- **Floor: On / Off**: show or hide the white floor grid in the preview only. There is no floor plane; the grid is excluded from all outputs.
+- **Outline: On / Off**: add vivid complementary-color body outlines, 4 pixels at the output resolution. Preview outlines scale with the displayed image; only `images` includes them, not OpenPose, depth, normals, color IDs or Region painter masks.
+- **Save / Load camera view**: disk / camera-return icons save one camera position, target and FOV, or restore it. Saving again replaces the stored view.
+- **FOV**: adjust the camera's field of view (10–120°); Reset view restores 36°.
+
+**Bodies and posing**
+
+- **Add body / Delete body**: add a randomly colored body or remove the selected one. Select a body in the tree or viewport to show its controllers; selecting **Scene** hides them.
+- **+ / −** beside **Human mesh**: open or close its settings. **Body color** changes the preview and rendered color; **Root size** scales the whole body, including IK controls.
+- **Body / Head / Hands**: sliders and numeric fields adjust shape coefficients, not individually named height/weight features. **↺** or slider double-click resets one value; group resets, **Reset all** and **Neutral** reset a group, restore the default shape or zero all values.
+- **Rotate / Move / Scale**: left-side icons (**E / W / R**) edit the selected controller. **White joints** rotate or scale; **green hand/foot targets** control IK; **green pelvis** moves the hips while IK holds the hands and feet; **purple poles** control elbow/knee bend direction and follow target movement, not rotation.
+- The body-colored **Root** circle below the feet moves, rotates or scales the entire body with its IK targets and poles. Click joints, including fingers, for individual edits.
+
+**View and outputs**
+
+- **Left drag / Middle-button drag / Scroll**: orbit / pan / zoom. Drag the upper-right **Light** sphere to change lighting direction; double-click to reset.
+- **Width / height** set output resolution. Resizing the node only resizes the preview, preserving its aspect ratio. Execution renders all bodies without editor controllers, using the same camera and resolution for each image output.
+- **Image outputs**: `images` is the shaded render; `openpose` draws the model's bones in standard OpenPose colors without pose detection; `depth` is normalized depth (near = white); `normal` is camera-space RGB normals; `color_id` uses flat body colors on black. All outputs exclude the preview grid.
+- **region painter**: connect to ComfyCouple Region painter's `region_painter` input. Each body becomes a separate protected mask layer, updated live with scene changes; the Painter's resolution follows this editor.
 
 ### image prompter preset
 
@@ -379,6 +431,32 @@ Create a mask for regional prompting. Use Ctrl + click to select an area, and Al
 
 <img width="3442" height="1324" alt="image" src="https://github.com/user-attachments/assets/1186f43e-4599-4aaa-8f89-6a38eac1fcc1" />
 
+
+## ComfyCouple Region painter
+
+<img width="1393" height="1407" alt="ComfyCouple Region painter example with painted masks and per-layer prompts" src="docs/images/comfycouple-region-painter.png" />
+
+Paint free-form regional masks on the left canvas and enter a prompt for each layer on the right.
+
+**Canvas and layers**
+
+- **Select layer**: the arrow icon selects the frontmost visible mask at the clicked canvas position and reveals its row in the layer list. Hidden layers and clipped-out pixels are ignored; clicking empty background keeps the selection.
+- **Brush / Line / Box / Ellipse / Eraser**: left-side icons paint or erase the selected layer. Drag with Line to draw a straight stroke; scroll to change brush, line or eraser thickness. Shift snaps lines to 45° steps, or constrains boxes/ellipses to squares/circles.
+- **Transform**: move painting, freely resize with corner handles, or rotate with the round handle. Shift preserves proportions when resizing and snaps rotation to 15°. Painting can move outside the canvas; **Center layer** brings it back.
+- **Undo / Redo / Clear layer**: undo or redo edits, or clear the selected layer's painting. **Copy / Paste mask** icons copy a black-and-white mask or paste a clipboard image into the selected layer; external masks are supported (white = selected, black = empty). Ctrl+C / Ctrl+V also work outside text fields.
+- **+ / − / ↑ / ↓**: add, delete or reorder layers. New layers appear directly above the selected layer (at the top when Base / Background is selected). Higher layers cover lower layers without deleting their painting. Toggle visibility with the checkbox; drag the divider below the list to adjust its height.
+- **Color / Strength / Region prompt**: set the selected region's display color, conditioning strength and prompt. The prompt appears as its list label, shortened when long. Visible painted regions need a prompt.
+- **Mask** beside Strength: choose another layer to clip the selected layer to its mask, or **None** to restore all original painting. Hidden layers can supply masks; masking is independent of layer order. Mask chains are supported, but self-masking and cycles are not.
+- **Base / Background**: fixed, non-paintable entries that cannot be deleted or moved. Base supplies a shared prompt for all regions and the background. Background's `region_and_background` mode also adds its prompt to each region; `background_only` applies it only to uncovered areas.
+- **Prompt shortcuts**: Ctrl+Up / Down adjusts `(text:weight)` for selected text or the current word; Ctrl+Enter queues execution.
+
+**Connections and output**
+
+- Connect **clip** from the generation model. Optional **region** appends to an existing region or Base / Background Prompt chain.
+- **Width / height** set canvas resolution. Resizing the node only changes the preview size, keeping its aspect ratio; painting and prompts are saved with the workflow.
+- Drag the vertical divider between the canvas and the right panel to adjust the layer list and prompt width. Double-click to reset; the width is saved with the node.
+- **region_painter**: connect 3D Pose Editor's `region painter` output to import one layer per body and automatically follow its resolution and scene changes. Paint extra areas on these layers; Eraser, Clear, Paste and Transform affect only the added painting, not the original body masks. Higher layers can still cover lower body masks. Edit body colors and delete bodies in the Pose editor. Disconnecting removes the imported body layers, including their extra painting and prompts; manually created layers and Base / Background prompts remain.
+- **images** outputs the colored composite on black; **region** connects to **ComfyCouple Mask**. Hidden, empty and fully covered layers are excluded from region output.
 
 ## Comfy Couple Region Extractor
 
